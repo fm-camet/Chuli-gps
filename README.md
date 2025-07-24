@@ -1,4 +1,5 @@
-<!DOCTYPE html><html lang="es">
+<!-- index.html -->
+<meta http-equiv="refresh" content="0; url=chuli-gps.html"><!DOCTYPE html><html lang="es">
 <head>
   <meta charset="UTF-8">
   <title>Chuli GPS Optimizado</title>
