@@ -2,117 +2,113 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GPS Chuli</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Reparto Chuli</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    html, body, #map { height: 100%; margin: 0; font-family: sans-serif; }
+    html, body, #map { height: 100%; margin: 0; padding: 0; }
     #controls {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: white;
-      padding: 10px;
-      z-index: 1000;
-      box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+      position: absolute; top: 10px; left: 10px; background: white;
+      padding: 10px; z-index: 1000; box-shadow: 0 0 10px #0002;
+      border-radius: 8px; max-width: 300px;
     }
     input, button {
-      margin: 5px 0;
-      width: 100%;
+      width: 100%; margin-top: 5px; padding: 8px;
+      font-size: 14px; border-radius: 4px; border: 1px solid #ccc;
     }
+    #destinos { margin-top: 10px; max-height: 100px; overflow-y: auto; font-size: 14px; }
   </style>
 </head>
 <body>
-  <div id="controls">
-    <button onclick="useMyLocation()">Usar mi ubicación</button>
-    <div id="waypoints"></div>
-    <button onclick="addWaypoint()">Agregar dirección</button>
-    <button onclick="optimizeRoute()">Optimizar ruta</button>
-  </div>
-  <div id="map"></div>
+<div id="controls">
+  <input type="text" id="direccionInput" placeholder="Agregar dirección"/>
+  <button onclick="agregarDireccion()">Agregar destino</button>
+  <button onclick="optimizarRuta()">Optimizar Ruta</button>
+  <div id="destinos"></div>
+</div>
+<div id="map"></div>
 
-  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
-  <script>
-    const apiKey = 'tu_api_key_aquí'; // ← Reemplaza por tu API si no lo hice yo
+<script>
+  let map = L.map('map').setView([-38.0055, -57.5426], 13);
+  let destinos = [];
+  let markers = [];
+  let routeLayer;
 
-    const map = L.map('map').setView([-38.0, -57.55], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
 
-    let waypointInputs = [];
-    let markers = [];
+  navigator.geolocation.getCurrentPosition(pos => {
+    const coords = [pos.coords.latitude, pos.coords.longitude];
+    L.marker(coords).addTo(map).bindPopup("Estás aquí").openPopup();
+    map.setView(coords, 14);
+  });
 
-    function useMyLocation() {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          map.setView([latitude, longitude], 14);
-          L.marker([latitude, longitude]).addTo(map).bindPopup("Tu ubicación").openPopup();
-        },
-        (error) => alert("Error al obtener la ubicación")
-      );
+  function agregarDireccion() {
+    const input = document.getElementById('direccionInput');
+    const texto = input.value.trim();
+    if (texto && destinos.length < 9) {
+      destinos.push(texto);
+      document.getElementById('destinos').innerHTML = destinos.map((d, i) => `${i+1}. ${d}`).join('<br>');
+      input.value = '';
     }
+  }
 
-    function addWaypoint() {
-      const container = document.getElementById("waypoints");
-      const input = document.createElement("input");
-      input.placeholder = "Dirección o coordenadas";
-      container.appendChild(input);
-      waypointInputs.push(input);
-    }
+  async function optimizarRuta() {
+    if (destinos.length < 2) return alert("Agrega al menos 2 destinos.");
 
-    async function optimizeRoute() {
-      const coords = [];
+    const coordenadas = await Promise.all(destinos.map(async d => {
+      const r = await fetch(`https://api.openrouteservice.org/geocode/search?api_key=TU_API_KEY&text=${encodeURIComponent(d)}`);
+      const data = await r.json();
+      const loc = data.features[0]?.geometry.coordinates;
+      return loc ? [loc[1], loc[0]] : null;
+    }));
 
-      for (let input of waypointInputs) {
-        const value = input.value.trim();
-        if (!value) continue;
+    if (coordenadas.includes(null)) return alert("Error al geocodificar una dirección.");
 
-        if (/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(value)) {
-          const [lat, lng] = value.split(',').map(Number);
-          coords.push([lng, lat]);
-        } else {
-          try {
-            const response = await fetch(`https://api.openrouteservice.org/geocode/search?api_key=${apiKey}&text=${encodeURIComponent(value)}`);
-            const data = await response.json();
-            const coord = data.features[0].geometry.coordinates;
-            coords.push(coord);
-          } catch (e) {
-            alert("Error al geocodificar: " + value);
-          }
-        }
-      }
+    const body = {
+      jobs: coordenadas.map((c, i) => ({
+        id: i + 1,
+        location: [c[1], c[0]]
+      })),
+      vehicles: [{
+        id: 1,
+        start: [coordenadas[0][1], coordenadas[0][0]],
+        end: [coordenadas.at(-1)[1], coordenadas.at(-1)[0]]
+      }]
+    };
 
-      if (coords.length < 2) {
-        alert("Agrega al menos 2 direcciones.");
-        return;
-      }
+    const res = await fetch("https://api.openrouteservice.org/optimization", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "TU_API_KEY"
+      },
+      body: JSON.stringify(body)
+    });
 
-      const body = {
-        coordinates: coords,
-        optimize_waypoints: true
-      };
+    const result = await res.json();
+    const pasos = result.routes[0].steps;
 
-      const route = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
-        method: 'POST',
-        headers: {
-          'Authorization': apiKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-      });
+    // Limpiar marcadores y rutas
+    markers.forEach(m => map.removeLayer(m));
+    if (routeLayer) map.removeLayer(routeLayer);
+    markers = [];
 
-      const json = await route.json();
+    const coordsOrdenadas = pasos.map(p => {
+      const job = body.jobs.find(j => j.id === p.job);
+      return job.location.reverse(); // Leaflet: [lat, lng]
+    });
 
-      if (window.routeLayer) map.removeLayer(window.routeLayer);
-      window.routeLayer = L.geoJSON(json, { style: { color: 'blue' } }).addTo(map);
-      map.fitBounds(window.routeLayer.getBounds());
-    }
+    coordsOrdenadas.forEach((coord, i) => {
+      const marker = L.marker(coord).addTo(map).bindPopup(`Parada ${i + 1}`);
+      markers.push(marker);
+    });
 
-    // Agregar dos campos por defecto
-    addWaypoint();
-    addWaypoint();
-  </script>
+    routeLayer = L.polyline(coordsOrdenadas, { color: 'blue', weight: 4 }).addTo(map);
+    map.fitBounds(routeLayer.getBounds());
+  }
+</script>
 </body>
 </html>
